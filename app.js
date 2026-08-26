@@ -1,7 +1,314 @@
-const input=document.getElementById('input'), btn=document.getElementById('export'), status=document.getElementById('status');
-btn.onclick=async()=>{const text=input.value.trim();if(!text){status.textContent='Βάλε πρώτα μια συνομιλία.';return}btn.disabled=true;status.textContent='Δημιουργώ το Word…';try{const blob=makeDocx(parse(text),'EXAI Conversation');const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='EXAI-Conversation.docx';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);status.textContent='Έτοιμο ✓';}catch(e){console.error(e);status.textContent='Κάτι πήγε στραβά.'}finally{btn.disabled=false}};
-function parse(t){return t.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean).map(x=>{let role='message';if(/^((you|user|εσύ)\s*:)/i.test(x))role='user';else if(/^((assistant|ai|chatgpt|claude|gemini)\s*:)/i.test(x))role='ai';return {role,text:x.replace(/^([^:]{1,30}):\s*/,'')}})}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function makeDocx(messages,title){const files={};files['[Content_Types].xml']=`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;files['_rels/.rels']=`<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;let body=`<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${esc(title)}</w:t></w:r></w:p>`;messages.forEach(m=>{body+=`<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${m.role==='user'?'You':m.role==='ai'?'AI':'Message'}</w:t></w:r></w:p>`;for(const line of m.text.split('\n'))body+=`<w:p><w:r><w:t xml:space="preserve">${esc(line)}</w:t></w:r></w:p>`});files['word/document.xml']=`<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr/></w:body></w:document>`;return new Blob([zip(files)],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}
-function zip(entries){const enc=new TextEncoder(),chunks=[],central=[];let off=0;for(const [name,content] of Object.entries(entries)){const n=enc.encode(name),d=enc.encode(content),c=crc32(d),l=new Uint8Array(30+n.length+d.length),v=new DataView(l.buffer);p32(v,0,0x04034b50);p16(v,4,20);p16(v,6,0);p16(v,8,0);p16(v,10,0);p16(v,12,0);p32(v,14,c);p32(v,18,d.length);p32(v,22,d.length);p16(v,26,n.length);p16(v,28,0);l.set(n,30);l.set(d,30+n.length);chunks.push(l);const q=new Uint8Array(46+n.length),w=new DataView(q.buffer);p32(w,0,0x02014b50);p16(w,4,20);p16(w,6,20);p16(w,8,0);p16(w,10,0);p16(w,12,0);p16(w,14,0);p32(w,16,c);p32(w,20,d.length);p32(w,24,d.length);p16(w,28,n.length);p16(w,30,0);p16(w,32,0);p16(w,34,0);p16(w,36,0);p32(w,38,0);p32(w,42,off);q.set(n,46);central.push(q);off+=l.length}const cs=central.reduce((a,b)=>a+b.length,0),e=new Uint8Array(22),v=new DataView(e.buffer);p32(v,0,0x06054b50);p16(v,4,0);p16(v,6,0);p16(v,8,central.length);p16(v,10,central.length);p32(v,12,cs);p32(v,16,off);p16(v,20,0);return new Blob([...chunks,...central,e],{type:'application/zip'})}
-function p16(v,o,n){v.setUint16(o,n,true)}function p32(v,o,n){v.setUint32(o,n>>>0,true)}function crc32(b){let c=0xffffffff;for(const x of b){c^=x;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0)}return(c^0xffffffff)>>>0}
+const input = document.getElementById('input');
+const fileInput = document.getElementById('file');
+const importBtn = document.getElementById('import');
+const exportBtn = document.getElementById('export');
+const status = document.getElementById('status');
+const preview = document.getElementById('preview');
+
+const userCount = document.getElementById('userCount');
+const aiCount = document.getElementById('aiCount');
+const totalCount = document.getElementById('totalCount');
+
+let conversation = [];
+
+importBtn.onclick = async () => {
+
+  status.textContent = 'Διαβάζω τη συνομιλία…';
+
+  try {
+
+    let text = input.value.trim();
+
+    // Αν έχει επιλεγεί αρχείο, το διαβάζουμε
+    if (!text && fileInput.files.length) {
+      text = await fileInput.files[0].text();
+    }
+
+    if (!text) {
+      status.textContent = 'Βάλε πρώτα μια συνομιλία ή διάλεξε αρχείο.';
+      return;
+    }
+
+    conversation = parseConversation(text);
+
+    if (!conversation.length) {
+      status.textContent = 'Δεν μπόρεσα να βρω μηνύματα.';
+      return;
+    }
+
+    const users = conversation.filter(m => m.role === 'user').length;
+    const ai = conversation.filter(m => m.role === 'ai').length;
+
+    userCount.textContent = users;
+    aiCount.textContent = ai;
+    totalCount.textContent = conversation.length;
+
+    preview.style.display = 'block';
+    exportBtn.disabled = false;
+
+    status.textContent = 'Η συνομιλία αναγνωρίστηκε ✓';
+
+  } catch (error) {
+
+    console.error(error);
+    status.textContent = 'Κάτι πήγε στραβά.';
+
+  }
+
+};
+
+
+fileInput.addEventListener('change', async () => {
+
+  if (!fileInput.files.length) return;
+
+  try {
+
+    const text = await fileInput.files[0].text();
+
+    input.value = text;
+
+    status.textContent = 'Το αρχείο φορτώθηκε ✓';
+
+  } catch {
+
+    status.textContent = 'Δεν μπορώ να διαβάσω αυτό το αρχείο.';
+
+  }
+
+});
+
+
+function parseConversation(text) {
+
+  const blocks = text
+    .split(/\n{2,}/)
+    .map(x => x.trim())
+    .filter(Boolean);
+
+  return blocks.map(block => {
+
+    let role = 'message';
+
+    if (/^(you|user|εσύ)\s*:/i.test(block)) {
+
+      role = 'user';
+
+    } else if (
+      /^(assistant|ai|chatgpt|claude|gemini|perplexity|grok)\s*:/i.test(block)
+    ) {
+
+      role = 'ai';
+
+    }
+
+    const cleaned = block.replace(
+      /^([^:]{1,40}):\s*/,
+      ''
+    );
+
+    return {
+      role,
+      text: cleaned
+    };
+
+  });
+
+}
+
+
+exportBtn.onclick = async () => {
+
+  if (!conversation.length) return;
+
+  exportBtn.disabled = true;
+
+  status.textContent = 'Δημιουργώ το Word…';
+
+  try {
+
+    const blob = makeDocx(
+      conversation,
+      'EXAI Conversation'
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+
+    a.href = url;
+    a.download = 'EXAI-Conversation.docx';
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 2000);
+
+    status.textContent = 'Το Word δημιουργήθηκε ✓';
+
+  } catch (error) {
+
+    console.error(error);
+
+    status.textContent = 'Κάτι πήγε στραβά.';
+
+  } finally {
+
+    exportBtn.disabled = false;
+
+  }
+
+};
+
+
+function esc(s) {
+
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+}
+
+
+function makeDocx(messages, title) {
+
+  const files = {};
+
+  files['[Content_Types].xml'] = `
+<?xml version="1.0"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels"
+ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml"
+ContentType="application/xml"/>
+<Override PartName="/word/document.xml"
+ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>
+`;
+
+  files['_rels/.rels'] = `
+<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship
+Id="rId1"
+Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+Target="word/document.xml"/>
+</Relationships>
+`;
+
+  let body = `
+<w:p>
+<w:r>
+<w:rPr><w:b/></w:rPr>
+<w:t>${esc(title)}</w:t>
+</w:r>
+</w:p>
+`;
+
+  messages.forEach(message => {
+
+    const label =
+      message.role === 'user'
+        ? 'You'
+        : message.role === 'ai'
+        ? 'AI'
+        : 'Message';
+
+    body += `
+<w:p>
+<w:r>
+<w:rPr><w:b/></w:rPr>
+<w:t>${label}</w:t>
+</w:r>
+</w:p>
+`;
+
+    const lines = message.text.split('\n');
+
+    lines.forEach(line => {
+
+      body += `
+<w:p>
+<w:r>
+<w:t xml:space="preserve">${esc(line)}</w:t>
+</w:r>
+</w:p>
+`;
+
+    });
+
+  });
+
+
+  files['word/document.xml'] = `
+<?xml version="1.0"?>
+
+<w:document
+xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+
+<w:body>
+
+${body}
+
+<w:sectPr/>
+
+</w:body>
+
+</w:document>
+`;
+
+  return new Blob(
+    [zip(files)],
+    {
+      type:
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    }
+  );
+
+}
+
+
+function zip(entries) {
+
+  const enc = new TextEncoder();
+
+  const chunks = [];
+  const central = [];
+
+  let offset = 0;
+
+  for (const [name, content] of Object.entries(entries)) {
+
+    const n = enc.encode(name);
+    const d = enc.encode(content);
+
+    const crc = crc32(d);
+
+    const local =
+      new Uint8Array(
+        30 + n.length + d.length
+      );
+
+    const v =
+      new DataView(local.buffer);
+
+    p32(v, 0, 0x04034b50);
+    p16(v, 4, 20);
+    p16(v, 6, 0);
+    p16(v, 8, 0);
+    p16(v, 10, 0);
+    p16(v, 12, 0);
+
+    p32(v, 14, crc);
+    p32(v, 18, d.length);
+    p32(v, 22, d.length);
+
+    p16(v, 26, n.length);
+    p16(v, 28, 0);
+
+    local.set(n, 30
