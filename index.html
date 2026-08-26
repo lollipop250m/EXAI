@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EXAI — AI Conversation Exporter</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f6f6f7;color:#111;min-height:100vh}.wrap{max-width:900px;margin:auto;padding:48px 20px}.card{background:#fff;border:1px solid #ddd;border-radius:20px;padding:28px;box-shadow:0 8px 30px #0000000a}h1{font-size:42px;margin:0 0 6px;letter-spacing:-1.5px}p{color:#666}.tag{display:inline-block;padding:6px 10px;border-radius:999px;background:#eee;font-size:12px;font-weight:700;margin-bottom:18px}textarea{width:100%;min-height:360px;border:1px solid #ccc;border-radius:14px;padding:16px;font:14px/1.55 system-ui;resize:vertical}button{margin-top:14px;width:100%;padding:14px;border:0;border-radius:12px;background:#111;color:white;font-size:16px;font-weight:700;cursor:pointer}button:disabled{opacity:.5}.status{margin-top:12px;min-height:22px;color:#555}.small{font-size:12px;color:#888;margin-top:18px}</style>
+</head>
+<body><main class="wrap"><div class="card">
+<div class="tag">MVP • V1</div><h1>EXAI</h1><p>Turn your AI conversations into editable Word documents.</p>
+<textarea id="input" placeholder="Κάνε paste εδώ μια συνομιλία από οποιοδήποτε AI…"></textarea>
+<button id="export">Export to Word</button><div class="status" id="status"></div>
+<div class="small">V1: η συνομιλία επεξεργάζεται τοπικά στον browser. Δεν αποστέλλεται σε server.</div>
+</div></main><script src="app.js"></script></body></html>
