@@ -102,17 +102,7 @@ function parseConversation(text) {
 
   text = cleanImportedText(text);
 
-  /*
-    Πρώτα προσπαθούμε να βρούμε
-    ξεκάθαρα User / Assistant messages.
-  */
-
   const patterns = [
-
-    /*
-      You:
-      Assistant:
-    */
 
     {
       regex:
@@ -128,11 +118,6 @@ function parseConversation(text) {
 
   ];
 
-
-  /*
-    Βρίσκουμε όλους τους πιθανούς
-    message headers.
-  */
 
   const markers = [];
 
@@ -154,18 +139,8 @@ function parseConversation(text) {
   }
 
 
-  /*
-    Ταξινόμηση με βάση τη θέση
-    μέσα στο κείμενο.
-  */
-
   markers.sort((a, b) => a.index - b.index);
 
-
-  /*
-    Αν βρέθηκαν γνωστά message headers,
-    δημιουργούμε messages.
-  */
 
   if (markers.length) {
 
@@ -202,11 +177,6 @@ function parseConversation(text) {
   }
 
 
-  /*
-    Αν δεν βρέθηκαν headers,
-    δοκιμάζουμε blocks.
-  */
-
   return parseBlocks(text);
 
 }
@@ -233,10 +203,6 @@ function parseBlocks(text) {
     let cleaned = block;
 
 
-    /*
-      User
-    */
-
     if (
       /^(you|user|εσύ)\s*:?\s*/i.test(block)
     ) {
@@ -252,10 +218,6 @@ function parseBlocks(text) {
 
     }
 
-
-    /*
-      AI
-    */
 
     else if (
       /^(assistant|ai|chatgpt|claude|gemini|perplexity|grok)\s*:?\s*/i.test(block)
@@ -279,12 +241,6 @@ function parseBlocks(text) {
 
     }
 
-
-    /*
-      Αν δεν γνωρίζουμε τον ρόλο,
-      προσπαθούμε να καταλάβουμε
-      από τη σειρά των blocks.
-    */
 
     else {
 
@@ -318,24 +274,12 @@ function cleanImportedText(text) {
 
   return String(text)
 
-    /*
-      Windows line endings
-    */
     .replace(/\r\n/g, '\n')
 
-    /*
-      Old Mac line endings
-    */
     .replace(/\r/g, '\n')
 
-    /*
-      Zero-width characters
-    */
     .replace(/\u200B/g, '')
 
-    /*
-      Excessive empty lines
-    */
     .replace(/\n{4,}/g, '\n\n')
 
     .trim();
@@ -407,7 +351,7 @@ exportBtn.onclick = async () => {
 
   try {
 
-    const blob = makeDocx(
+    const blob = await makeDocx(
       conversation,
       'EXAI Conversation'
     );
@@ -453,25 +397,14 @@ exportBtn.onclick = async () => {
 
 
 /* =========================
-   ESCAPE XML
-========================= */
-
-function esc(s) {
-
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-
-}
-
-
-/* =========================
    DOCX
 ========================= */
 
-function makeDocx(messages, title) {
+async function makeDocx(messages, title) {
+
+  if (typeof docx === 'undefined') {
+    throw new Error('Η βιβλιοθήκη DOCX δεν φορτώθηκε.');
+  }
 
   const {
     Document,
@@ -513,10 +446,6 @@ function makeDocx(messages, title) {
       );
 
 
-    /*
-      Speaker
-    */
-
     children.push(
       new Paragraph({
         children: [
@@ -532,10 +461,6 @@ function makeDocx(messages, title) {
       })
     );
 
-
-    /*
-      Message text
-    */
 
     const lines =
       String(message.text || '')
@@ -586,6 +511,6 @@ function makeDocx(messages, title) {
     });
 
 
-  return Packer.toBlob(document);
+  return await Packer.toBlob(document);
 
 }
