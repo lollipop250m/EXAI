@@ -473,39 +473,32 @@ function esc(s) {
 
 function makeDocx(messages, title) {
 
-  const files = {};
+  const {
+    Document,
+    Paragraph,
+    TextRun,
+    HeadingLevel,
+    Packer
+  } = docx;
 
-  files['[Content_Types].xml'] = `
-<?xml version="1.0"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels"
-ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="xml"
-ContentType="application/xml"/>
-<Override PartName="/word/document.xml"
-ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>
-`;
+  const children = [];
 
-  files['_rels/.rels'] = `
-<?xml version="1.0"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship
-Id="rId1"
-Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
-Target="word/document.xml"/>
-</Relationships>
-`;
 
-  let body = `
-<w:p>
-<w:r>
-<w:rPr><w:b/></w:rPr>
-<w:t>${esc(title)}</w:t>
-</w:r>
-</w:p>
-`;
+  /* =========================
+     TITLE
+  ========================= */
 
+  children.push(
+    new Paragraph({
+      text: title,
+      heading: HeadingLevel.TITLE
+    })
+  );
+
+
+  /* =========================
+     MESSAGES
+  ========================= */
 
   messages.forEach(message => {
 
@@ -520,299 +513,79 @@ Target="word/document.xml"/>
       );
 
 
-    body += `
-<w:p>
-<w:r>
-<w:rPr><w:b/></w:rPr>
-<w:t>${esc(label)}</w:t>
-</w:r>
-</w:p>
-`;
+    /*
+      Speaker
+    */
 
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: label,
+            bold: true
+          })
+        ],
+        spacing: {
+          before: 240,
+          after: 80
+        }
+      })
+    );
+
+
+    /*
+      Message text
+    */
 
     const lines =
-      message.text.split('\n');
+      String(message.text || '')
+        .split('\n');
 
 
     lines.forEach(line => {
 
-      body += `
-<w:p>
-<w:r>
-<w:t xml:space="preserve">${esc(line)}</w:t>
-</w:r>
-</w:p>
-`;
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: line || ' '
+            })
+          ],
+          spacing: {
+            after: 100
+          }
+        })
+      );
 
     });
 
   });
 
 
-  files['word/document.xml'] = `
-<?xml version="1.0"?>
+  /* =========================
+     DOCUMENT
+  ========================= */
 
-<w:document
-xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  const document =
+    new Document({
 
-<w:body>
+      title: title,
 
-${body}
+      description:
+        'Conversation exported by EXAI',
 
-<w:sectPr/>
+      creator:
+        'EXAI',
 
-</w:body>
+      sections: [
+        {
+          children
+        }
+      ]
 
-</w:document>
-`;
-
-  return new Blob(
-    [zip(files)],
-    {
-      type:
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    }
-  );
-
-}
+    });
 
 
-/* =========================
-   ZIP
-========================= */
-
-function zip(entries) {
-
-  const enc =
-    new TextEncoder();
-
-  const chunks = [];
-  const central = [];
-
-  let offset = 0;
-
-
-  for (
-    const [name, content]
-    of Object.entries(entries)
-  ) {
-
-    const n =
-      enc.encode(name);
-
-    const d =
-      enc.encode(content);
-
-    const crc =
-      crc32(d);
-
-
-    const local =
-      new Uint8Array(
-        30 + n.length + d.length
-      );
-
-    const v =
-      new DataView(
-        local.buffer
-      );
-
-
-    p32(v, 0, 0x04034b50);
-    p16(v, 4, 20);
-    p16(v, 6, 0);
-    p16(v, 8, 0);
-    p16(v, 10, 0);
-    p16(v, 12, 0);
-
-    p32(v, 14, crc);
-    p32(v, 18, d.length);
-    p32(v, 22, d.length);
-
-    p16(v, 26, n.length);
-    p16(v, 28, 0);
-
-    local.set(n, 30);
-    local.set(
-      d,
-      30 + n.length
-    );
-
-    chunks.push(local);
-
-
-    const q =
-      new Uint8Array(
-        46 + n.length
-      );
-
-    const w =
-      new DataView(
-        q.buffer
-      );
-
-
-    p32(w, 0, 0x02014b50);
-
-    p16(w, 4, 20);
-    p16(w, 6, 20);
-    p16(w, 8, 0);
-    p16(w, 10, 0);
-    p16(w, 12, 0);
-    p16(w, 14, 0);
-
-    p32(w, 16, crc);
-    p32(w, 20, d.length);
-    p32(w, 24, d.length);
-
-    p16(w, 28, n.length);
-    p16(w, 30, 0);
-    p16(w, 32, 0);
-    p16(w, 34, 0);
-    p16(w, 36, 0);
-
-    p32(w, 38, 0);
-    p32(w, 42, offset);
-
-    q.set(n, 46);
-
-    central.push(q);
-
-    offset +=
-      local.length;
-
-  }
-
-
-  const centralSize =
-    central.reduce(
-      (a, b) => a + b.length,
-      0
-    );
-
-
-  const end =
-    new Uint8Array(22);
-
-  const v =
-    new DataView(
-      end.buffer
-    );
-
-
-  p32(
-    v,
-    0,
-    0x06054b50
-  );
-
-  p16(v, 4, 0);
-  p16(v, 6, 0);
-
-  p16(
-    v,
-    8,
-    central.length
-  );
-
-  p16(
-    v,
-    10,
-    central.length
-  );
-
-  p32(
-    v,
-    12,
-    centralSize
-  );
-
-  p32(
-    v,
-    16,
-    offset
-  );
-
-  p16(v, 20, 0);
-
-
-  return new Blob(
-    [
-      ...chunks,
-      ...central,
-      end
-    ],
-    {
-      type:
-        'application/zip'
-    }
-  );
+  return Packer.toBlob(document);
 
 }
-
-
-/* =========================
-   BINARY HELPERS
-========================= */
-
-function p16(v, o, n) {
-
-  v.setUint16(
-    o,
-    n,
-    true
-  );
-
-}
-
-
-function p32(v, o, n) {
-
-  v.setUint32(
-    o,
-    n >>> 0,
-    true
-  );
-
-}
-
-
-/* =========================
-   CRC32
-========================= */
-
-function crc32(bytes) {
-
-  let c =
-    0xffffffff;
-
-
-  for (const b of bytes) {
-
-    c ^= b;
-
-
-    for (
-      let i = 0;
-      i < 8;
-      i++
-    ) {
-
-      c =
-        (c >>> 1) ^
-        (
-          (c & 1)
-            ? 0xedb88320
-            : 0
-        );
-
-    }
-
-  }
-
-
-  return (
-    c ^ 0xffffffff
-  ) >>> 0;
-
-      }
