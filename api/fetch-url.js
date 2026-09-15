@@ -14,45 +14,33 @@ export default async function handler(req, res) {
       });
     }
 
-    let parsedUrl;
-
-    try {
-      parsedUrl = new URL(url);
-    } catch {
-      return res.status(400).json({
-        error: "Το URL δεν είναι έγκυρο."
-      });
-    }
-
-    const hostname = parsedUrl.hostname.toLowerCase();
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
 
     if (
-      hostname !== "chatgpt.com" &&
-      hostname !== "www.chatgpt.com" &&
-      hostname !== "chat.openai.com"
+      host !== "chatgpt.com" &&
+      host !== "www.chatgpt.com" &&
+      host !== "chat.openai.com"
     ) {
       return res.status(400).json({
-        error: "Αυτή τη στιγμή υποστηρίζεται ChatGPT Share URL."
+        error: "Αυτή τη στιγμή υποστηρίζονται ChatGPT Share URLs."
       });
     }
 
-    if (!parsedUrl.pathname.startsWith("/share/")) {
+    if (!parsed.pathname.startsWith("/share/")) {
       return res.status(400).json({
         error:
-          "Χρειάζεται δημόσιο ChatGPT Share URL που ξεκινά με /share/."
+          "Το URL πρέπει να είναι δημόσιο ChatGPT Share URL (/share/...)."
       });
     }
 
     const response = await fetch(url, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
-
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Accept":
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-
-        "Accept-Language":
-          "en-US,en;q=0.9"
+        "Accept-Language": "en-US,en;q=0.9"
       }
     });
 
@@ -65,284 +53,457 @@ export default async function handler(req, res) {
 
     const html = await response.text();
 
-    /*
-     * ==========================================
-     * CHATGPT SHARE - REACT FLIGHT PAYLOAD
-     * ==========================================
-     */
+    const conversation = extractChatGPT(html);
 
-    const payload = extractPayload(html);
-
-    if (!payload) {
+    if (!conversation || !conversation.length) {
       return res.status(422).json({
         error:
-          "Βρέθηκε η σελίδα του ChatGPT αλλά δεν βρέθηκε το conversation payload."
+          "Η σελίδα άνοιξε, αλλά δεν μπόρεσα να εξαγάγω τη συνομιλία."
       });
     }
 
-    const resolved = resolveValue(payload, 0);
+    const messages = conversation
+      .filter(x =>
+        x &&
+        (x.role === "user" ||
+         x.role === "assistant")
+      )
+      .map(x => ({
+        role:
+          x.role === "user"
+            ? "user"
+            : "ai",
 
-    const messages = findMessages(resolved);
+        label:
+          x.role === "user"
+            ? "You"
+            : "ChatGPT",
+
+        text:
+          cleanText(x.text)
+      }))
+      .filter(x => x.text);
 
     if (!messages.length) {
       return res.status(422).json({
         error:
-          "Βρέθηκε το ChatGPT payload αλλά δεν βρέθηκαν μηνύματα."
+          "Η συνομιλία βρέθηκε αλλά δεν περιείχε αναγνώσιμο κείμενο."
       });
     }
 
-    const cleanMessages = messages
-      .map(message => {
-        const role =
-          message.role === "user"
-            ? "user"
-            : "ai";
-
-        const label =
-          role === "user"
-            ? "You"
-            : "ChatGPT";
-
-        return {
-          role,
-          label,
-          text: String(message.text || "").trim()
-        };
-      })
-      .filter(message => message.text);
-
-    if (!cleanMessages.length) {
-      return res.status(422).json({
-        error:
-          "Τα μηνύματα βρέθηκαν αλλά δεν περιείχαν κείμενο."
-      });
-    }
-
-    const text = cleanMessages
-      .map(message =>
-        `${message.label}:\n${message.text}`
+    const text = messages
+      .map(x =>
+        `${x.label}:\n${x.text}`
       )
       .join("\n\n");
 
     return res.status(200).json({
       provider: "chatgpt",
       text,
-      messages: cleanMessages
+      messages
     });
 
   } catch (error) {
 
-    console.error("EXAI FETCH URL ERROR:", error);
+    console.error(
+      "EXAI URL ERROR:",
+      error
+    );
 
     return res.status(500).json({
       error:
         error?.message ||
-        "A server error occurred while reading the URL."
+        "A server error occurred."
     });
   }
 }
 
 
-/*
- * ==========================================
- * EXTRACT REACT FLIGHT PAYLOAD
- * ==========================================
- */
+/* =========================================
+   CHATGPT EXTRACTION
+========================================= */
 
-function extractPayload(html) {
+function extractChatGPT(html) {
+
+  /*
+   * Modern ChatGPT uses React Router /
+   * React Server Components streaming.
+   *
+   * The payload may be split across
+   * several enqueue() calls.
+   */
+
+  const chunks = [];
+
+  const patterns = [
+    /__reactRouterContext\.streamController\.enqueue\((["'][\s\S]*?["'])\)/g,
+    /streamController\.enqueue\((["'][\s\S]*?["'])\)/g
+  ];
+
+  for (const regex of patterns) {
+
+    let match;
+
+    while ((match = regex.exec(html)) !== null) {
+
+      try {
+
+        const value =
+          JSON.parse(match[1]);
+
+        if (typeof value === "string") {
+          chunks.push(value);
+        }
+
+      } catch {
+        // Ignore malformed chunk
+      }
+    }
+  }
+
+  if (chunks.length) {
+
+    const stream =
+      chunks.join("");
+
+    const parsed =
+      parseFlightStream(stream);
+
+    if (parsed) {
+
+      const messages =
+        findConversationMessages(parsed);
+
+      if (messages.length) {
+        return messages;
+      }
+    }
+  }
+
+
+  /*
+   * Legacy Next.js fallback
+   */
+
+  const nextMatch =
+    html.match(
+      /<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i
+    );
+
+  if (nextMatch) {
+
+    try {
+
+      const data =
+        JSON.parse(nextMatch[1]);
+
+      const messages =
+        findConversationMessages(data);
+
+      if (messages.length) {
+        return messages;
+      }
+
+    } catch {
+      // Ignore legacy parse errors
+    }
+  }
+
+
+  /*
+   * Generic JSON script fallback
+   */
 
   const scripts =
     html.match(
-      /<script[^>]*>[\s\S]*?<\/script>/gi
+      /<script[^>]*type=["']application\/json["'][^>]*>[\s\S]*?<\/script>/gi
     ) || [];
 
   for (const script of scripts) {
 
-    const match =
-      script.match(
-        /streamController\.enqueue\("([\s\S]*?)"\)/
-      );
-
-    if (!match) continue;
+    const content =
+      script
+        .replace(/^<script[^>]*>/i, "")
+        .replace(/<\/script>$/i, "");
 
     try {
 
-      const escaped = match[1];
-
-      const decoded =
-        JSON.parse(`"${escaped}"`);
-
       const data =
-        JSON.parse(decoded);
+        JSON.parse(content);
 
-      if (Array.isArray(data)) {
-        return data;
+      const messages =
+        findConversationMessages(data);
+
+      if (messages.length) {
+        return messages;
       }
 
-    } catch (error) {
-
-      console.log(
-        "Payload decode failed:",
-        error.message
-      );
-
+    } catch {
+      // Continue
     }
   }
 
-  return null;
+  return [];
 }
 
 
-/*
- * ==========================================
- * REACT FLIGHT RESOLVER
- * ==========================================
- */
+/* =========================================
+   REACT FLIGHT DECODER
+========================================= */
 
-function resolveValue(data, index, seen = new Set()) {
+function parseFlightStream(stream) {
 
-  if (
-    index < 0 ||
-    index >= data.length
-  ) {
-    return null;
-  }
+  const records =
+    stream.split(/\n/);
 
-  if (seen.has(index)) {
-    return null;
-  }
+  const table = [];
 
-  seen.add(index);
+  for (const record of records) {
 
-  const value = data[index];
+    if (!record) continue;
 
-  if (typeof value === "string") {
+    const colon =
+      record.indexOf(":");
+
+    if (colon === -1) continue;
+
+    const id =
+      parseInt(
+        record.slice(0, colon),
+        10
+      );
+
+    if (Number.isNaN(id)) continue;
+
+    let value =
+      record.slice(colon + 1);
 
     /*
-     * React Flight references sometimes
-     * start with a number.
+     * React Flight frequently has
+     * special prefixes.
      */
 
-    if (/^\d+$/.test(value)) {
+    if (
+      value.startsWith("T")
+    ) {
+      value = value.slice(1);
+    }
 
-      const ref =
-        Number(value);
+    try {
 
       if (
-        ref >= 0 &&
-        ref < data.length &&
-        ref !== index
+        value.startsWith("\"")
       ) {
-        return resolveValue(
-          data,
-          ref,
-          new Set(seen)
+
+        value =
+          JSON.parse(value);
+
+      } else {
+
+        value =
+          JSON.parse(value);
+
+      }
+
+    } catch {
+
+      /*
+       * Some records are plain strings.
+       */
+
+      try {
+
+        value =
+          JSON.parse(
+            `"${value
+              .replace(/\\/g, "\\\\")
+              .replace(/"/g, '\\"')}"`
+          );
+
+      } catch {
+
+        continue;
+      }
+    }
+
+    table[id] = value;
+  }
+
+  if (!table.length) {
+    return null;
+  }
+
+  return resolveReferences(
+    table,
+    table
+  );
+}
+
+
+/* =========================================
+   RESOLVE REFERENCES
+========================================= */
+
+function resolveReferences(
+  root,
+  table,
+  seen = new Set()
+) {
+
+  if (typeof root === "string") {
+
+    /*
+     * Flight references can look like
+     * "$1", "$2", etc.
+     */
+
+    if (
+      /^\$\d+$/.test(root)
+    ) {
+
+      const id =
+        parseInt(
+          root.slice(1),
+          10
+        );
+
+      if (
+        !seen.has(id) &&
+        table[id] !== undefined
+      ) {
+
+        const next =
+          new Set(seen);
+
+        next.add(id);
+
+        return resolveReferences(
+          table[id],
+          table,
+          next
         );
       }
     }
 
-    return value;
+    return root;
   }
 
-  if (
-    typeof value === "number"
-  ) {
 
-    return resolveValue(
-      data,
-      value,
-      new Set(seen)
+  if (Array.isArray(root)) {
+
+    return root.map(item =>
+      resolveReferences(
+        item,
+        table,
+        seen
+      )
     );
   }
 
-  if (Array.isArray(value)) {
-
-    return value.map(
-      (item, i) => {
-
-        if (
-          typeof item === "number" &&
-          item >= 0 &&
-          item < data.length
-        ) {
-          return resolveValue(
-            data,
-            item,
-            new Set(seen)
-          );
-        }
-
-        return item;
-      }
-    );
-  }
 
   if (
-    value &&
-    typeof value === "object"
+    root &&
+    typeof root === "object"
   ) {
 
     const result = {};
 
     for (
-      const [key, item]
-      of Object.entries(value)
+      const [key, value]
+      of Object.entries(root)
     ) {
 
-      let resolvedItem = item;
-
-      if (
-        typeof item === "number" &&
-        item >= 0 &&
-        item < data.length
-      ) {
-
-        resolvedItem =
-          resolveValue(
-            data,
-            item,
-            new Set(seen)
-          );
-      }
-
-      result[key] = resolvedItem;
+      result[key] =
+        resolveReferences(
+          value,
+          table,
+          seen
+        );
     }
 
     return result;
   }
 
-  return value;
+
+  return root;
 }
 
 
-/*
- * ==========================================
- * FIND CONVERSATION MESSAGES
- * ==========================================
- */
+/* =========================================
+   FIND CONVERSATION
+========================================= */
 
-function findMessages(root) {
+function findConversationMessages(
+  root
+) {
 
   const results = [];
 
-  walk(root, results);
+  walk(
+    root,
+    results,
+    new Set()
+  );
 
-  return results;
+  /*
+   * Remove duplicates.
+   */
+
+  const unique = [];
+
+  const seen = new Set();
+
+  for (const item of results) {
+
+    const key =
+      `${item.role}|${item.text}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(item);
+  }
+
+  return unique;
 }
 
 
-function walk(value, results) {
+function walk(
+  value,
+  results,
+  visited
+) {
 
   if (!value) return;
+
+  if (
+    typeof value === "object"
+  ) {
+
+    if (visited.has(value)) {
+      return;
+    }
+
+    visited.add(value);
+  }
+
 
   if (Array.isArray(value)) {
 
     for (const item of value) {
-      walk(item, results);
+
+      walk(
+        item,
+        results,
+        visited
+      );
     }
 
     return;
   }
+
 
   if (
     typeof value !== "object"
@@ -352,93 +513,102 @@ function walk(value, results) {
 
 
   /*
-   * Common ChatGPT message shape
+   * New conversation shape
    */
 
   if (
     value.author &&
-    typeof value.author === "object" &&
-    typeof value.content === "object"
+    typeof value.author === "object"
   ) {
 
     const role =
       value.author.role;
 
-    const parts =
-      extractText(value.content);
-
     if (
-      (role === "user" ||
-       role === "assistant") &&
-      parts
+      role === "user" ||
+      role === "assistant"
     ) {
 
-      results.push({
-        role,
-        text: parts
-      });
+      const text =
+        extractContent(
+          value.content
+        );
 
+      if (text) {
+
+        results.push({
+          role,
+          text
+        });
+      }
     }
   }
 
 
   /*
-   * Alternative message shape
+   * Another common shape
    */
 
   if (
-    value.role &&
-    value.content
+    value.role === "user" ||
+    value.role === "assistant"
   ) {
 
-    const role =
-      value.role;
+    const text =
+      extractContent(
+        value.content
+      );
 
-    const parts =
-      extractText(value.content);
-
-    if (
-      (role === "user" ||
-       role === "assistant") &&
-      parts
-    ) {
+    if (text) {
 
       results.push({
-        role,
-        text: parts
+        role: value.role,
+        text
       });
-
     }
   }
 
+
+  /*
+   * Recursive search.
+   */
 
   for (
     const child
     of Object.values(value)
   ) {
 
-    walk(child, results);
-
+    walk(
+      child,
+      results,
+      visited
+    );
   }
 }
 
 
-/*
- * ==========================================
- * EXTRACT TEXT
- * ==========================================
- */
+/* =========================================
+   CONTENT EXTRACTION
+========================================= */
 
-function extractText(content) {
+function extractContent(
+  content
+) {
 
-  if (typeof content === "string") {
+  if (
+    typeof content === "string"
+  ) {
     return content;
   }
 
-  if (Array.isArray(content)) {
+  if (
+    Array.isArray(content)
+  ) {
 
     return content
-      .map(extractText)
+      .map(item =>
+        extractContent(item)
+      )
       .filter(Boolean)
       .join("\n");
   }
@@ -452,6 +622,19 @@ function extractText(content) {
 
 
   if (
+    Array.isArray(content.parts)
+  ) {
+
+    return content.parts
+      .map(item =>
+        extractContent(item)
+      )
+      .filter(Boolean)
+      .join("\n");
+  }
+
+
+  if (
     typeof content.text === "string"
   ) {
     return content.text;
@@ -459,26 +642,36 @@ function extractText(content) {
 
 
   if (
-    typeof content.parts !== "undefined"
+    typeof content.value === "string"
   ) {
-
-    return extractText(
-      content.parts
-    );
-
+    return content.value;
   }
 
 
   if (
-    typeof content.value !== "undefined"
+    content.content
   ) {
 
-    return extractText(
-      content.value
+    return extractContent(
+      content.content
     );
-
   }
 
 
   return "";
-        }
+}
+
+
+/* =========================================
+   CLEAN
+========================================= */
+
+function cleanText(text) {
+
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\u200B/g, "")
+    .replace(/\n{4,}/g, "\n\n")
+    .trim();
+          }
