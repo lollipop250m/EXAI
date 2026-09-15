@@ -1,0 +1,8 @@
+{
+  "name": "exai",
+  "version": "2.0.0",
+  "private": true,
+  "dependencies": {
+    "chatgpt-share-parser": "^1.0.0"
+  }
+}
