@@ -5,6 +5,9 @@ const exportBtn = document.getElementById('export');
 const status = document.getElementById('status');
 const preview = document.getElementById('preview');
 
+const urlInput = document.getElementById('urlInput');
+const urlImportBtn = document.getElementById('urlImport');
+
 const userCount = document.getElementById('userCount');
 const aiCount = document.getElementById('aiCount');
 const totalCount = document.getElementById('totalCount');
