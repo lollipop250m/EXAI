@@ -98,6 +98,116 @@ fileInput.addEventListener('change', async () => {
 
 
 /* =========================
+   URL IMPORT
+========================= */
+
+urlImportBtn.onclick = async () => {
+
+  const url = urlInput.value.trim();
+
+  if (!url) {
+    status.textContent = 'Βάλε πρώτα το URL της συνομιλίας.';
+    return;
+  }
+
+  try {
+
+    new URL(url);
+
+  } catch {
+
+    status.textContent = 'Το URL δεν είναι έγκυρο.';
+    return;
+
+  }
+
+  urlImportBtn.disabled = true;
+
+  status.textContent =
+    'Διαβάζω τη συνομιλία από το URL…';
+
+  try {
+
+    const response = await fetch('/api/fetch-url', {
+
+      method: 'POST',
+
+      headers: {
+        'Content-Type': 'application/json'
+      },
+
+      body: JSON.stringify({
+        url
+      })
+
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || 'Δεν μπόρεσα να διαβάσω το URL.'
+      );
+    }
+
+    if (!data.text) {
+      throw new Error(
+        'Δεν βρέθηκε περιεχόμενο συνομιλίας στο URL.'
+      );
+    }
+
+    input.value = data.text;
+
+    conversation = parseConversation(data.text);
+
+    if (!conversation.length) {
+
+      status.textContent =
+        'Βρήκα τη σελίδα, αλλά δεν μπόρεσα να αναγνωρίσω τη συνομιλία.';
+
+      return;
+
+    }
+
+    const users =
+      conversation.filter(
+        m => m.role === 'user'
+      ).length;
+
+    const ai =
+      conversation.filter(
+        m => m.role === 'ai'
+      ).length;
+
+    userCount.textContent = users;
+    aiCount.textContent = ai;
+    totalCount.textContent = conversation.length;
+
+    preview.style.display = 'block';
+
+    exportBtn.disabled = false;
+
+    status.textContent =
+      `Η συνομιλία φορτώθηκε από URL ✓ (${conversation.length} μηνύματα)`;
+
+  } catch (error) {
+
+    console.error(error);
+
+    status.textContent =
+      error.message ||
+      'Δεν μπόρεσα να διαβάσω αυτό το URL.';
+
+  } finally {
+
+    urlImportBtn.disabled = false;
+
+  }
+
+};
+
+
+/* =========================
    EXAI IMPORTER
 ========================= */
 
