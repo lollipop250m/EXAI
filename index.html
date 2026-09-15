@@ -59,6 +59,18 @@ textarea{
   resize:vertical;
 }
 
+.url-box{
+  margin-top:14px;
+}
+
+.url-input{
+  width:100%;
+  padding:14px 16px;
+  border:1px solid #ccc;
+  border-radius:14px;
+  font:14px system-ui;
+}
+
 .file{
   margin-top:14px;
   padding:18px;
@@ -82,6 +94,10 @@ button{
 
 button:disabled{
   opacity:.5;
+}
+
+.url-button{
+  background:#444;
 }
 
 .status{
@@ -136,6 +152,21 @@ id="input"
 placeholder="Κάνε paste εδώ μια συνομιλία από οποιοδήποτε AI…">
 </textarea>
 
+<div class="url-box">
+
+<input
+id="urlInput"
+class="url-input"
+type="url"
+placeholder="🔗 Ή κάνε paste το URL μιας συνομιλίας…"
+>
+
+<button id="urlImport" class="url-button">
+Import from URL
+</button>
+
+</div>
+
 <div class="file">
   <strong>ή διάλεξε αρχείο</strong>
   <div>
@@ -188,4 +219,4 @@ EXAI V2 — Η επεξεργασία γίνεται τοπικά στον brows
 <script src="app.js"></script>
 
 </body>
-                           </html>
+                        </html>
